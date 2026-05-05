@@ -1,0 +1,36 @@
+# ─── Date mari (nu se commitează) ───────────────────────────────────────────
+data/HomeC.csv
+data/*.csv
+
+# ─── Java / Maven ────────────────────────────────────────────────────────────
+flink-processor/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# ─── Go ──────────────────────────────────────────────────────────────────────
+generator/generator
+generator/*.exe
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# ─── IDE ─────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# ─── Flink output files (mari, generate la runtime) ─────────────────────────
+results/speculative_output/
+results/watermark_output/
+
+# ─── OS ──────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
