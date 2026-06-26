@@ -1,0 +1,4 @@
+Configurație,True Latency (s),Window Delay (min),Completeness (%)
+driftThreshold = 30s,1.552,0.49,91.0
+driftThreshold = 60s (default),1.551,0.49,91.4
+driftThreshold = 120s,1.555,0.5,90.9

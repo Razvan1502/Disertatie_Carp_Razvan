@@ -22,7 +22,7 @@ public class SpeculativeJob {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
 
-        // Configurare sursă Kafka
+        // Configurare sursa Kafka
         String uniqueGroupId = "speculative-group-" + System.currentTimeMillis();
         KafkaSource<SmartHomeEvent> source = KafkaSource.<SmartHomeEvent>builder()
                 .setBootstrapServers("localhost:9092")
@@ -40,7 +40,7 @@ public class SpeculativeJob {
 
         DataStream<SmartHomeEvent> events = env.fromSource(source, watermarkStrategy, "Kafka Ingest");
 
-        //procesarea ferestrei
+
         events
                 .keyBy(event -> event.house_id)
                 .window(TumblingEventTimeWindows.of(Time.seconds(10)))
@@ -69,7 +69,7 @@ public class SpeculativeJob {
                         long windowEnd = context.window().getEnd();
                         long systemTime = System.currentTimeMillis();
 
-                        // Decisional latency: salvăm prima valoare (poate fi negativă - rezultat anticipat)
+                        // Decisional latency: salvam prima valoare
                         ValueStateDescriptor<Long> latDesc = new ValueStateDescriptor<>("firstDecisionalLat", Long.class);
                         ValueState<Long> firstLatState = context.windowState().getState(latDesc);
                         if (firstLatState.value() == null) {
@@ -77,7 +77,7 @@ public class SpeculativeJob {
                         }
                         long decisionalLatencyToReport = firstLatState.value();
 
-                        // True latency: salvăm prima valoare (mereu >= 0)
+                        // True latency: salvam prima valoare
                         ValueStateDescriptor<Long> trueLatDesc = new ValueStateDescriptor<>("firstTrueLat", Long.class);
                         ValueState<Long> firstTrueLatState = context.windowState().getState(trueLatDesc);
                         if (firstTrueLatState.value() == null) {

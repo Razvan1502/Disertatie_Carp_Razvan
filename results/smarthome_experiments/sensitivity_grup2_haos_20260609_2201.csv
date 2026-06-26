@@ -1,0 +1,4 @@
+Configurație,True Latency (s),Decisional Lat.(s),Completeness (%),Overhead
+driftThreshold = 500,2.573,2.949,92.2,1.0
+driftThreshold = 1000,2.577,2.95,92.2,1.0
+driftThreshold = 2000,4.093,6.006,96.6,1.0

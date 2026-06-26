@@ -25,7 +25,7 @@ public class InfluxDBSink extends RichSinkFunction<SmartHomeResult> {
     @Override
     public void invoke(SmartHomeResult value, Context context) {
         Point point = Point.measurement("house_metrics")
-                .time(value.windowEnd, TimeUnit.MILLISECONDS) //timpul este windowend, ajuta la mecanismul de retracii/ update in db pt corectii
+                .time(value.windowEnd, TimeUnit.MILLISECONDS)
                 .tag("house_id", value.houseId)
                 .tag("strategy", strategy)
                 .addField("avg_temp", value.avgTemp)

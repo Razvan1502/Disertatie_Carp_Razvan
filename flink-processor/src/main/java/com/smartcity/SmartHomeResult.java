@@ -3,8 +3,8 @@ package com.smartcity;
 public class SmartHomeResult {
     public String houseId;
     public long windowEnd;
-    public long decisionalLatencyMs; // System.currentTimeMillis() - window.getEnd(); poate fi negativ pt speculative
-    public long trueLatencyMs;       // System.currentTimeMillis() - max(arrival_time); mereu >= 0
+    public long decisionalLatencyMs;
+    public long trueLatencyMs;
     public int count;
     public double avgTemp;
     public double avgEnergy;

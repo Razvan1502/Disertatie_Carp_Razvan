@@ -16,27 +16,31 @@ import java.time.Duration;
 
 public class DataStreamJob {
     public static void main(String[] args) throws Exception {
-        // Configurarea mediului de execuție Flink
+        // arg[0] = slackSeconds (default 5). Ex: 1, 3, 5, 8, 12
+        long slackSeconds = (args.length > 0) ? Long.parseLong(args[0]) : 5;
+        String sinkName = "watermark_" + slackSeconds + "s";
+
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setParallelism(1); //procesam secvential
+        env.setParallelism(1);
 
         KafkaSource<SmartHomeEvent> source = KafkaSource.<SmartHomeEvent>builder()
                 .setBootstrapServers("localhost:9092")
                 .setTopics("iot-sensor-data")
-                .setGroupId("flink-processor-group")
+                .setGroupId("watermark-group-" + System.currentTimeMillis())
                 .setStartingOffsets(OffsetsInitializer.latest())
-                .setValueOnlyDeserializer(new JsonDeserializationSchema<>(SmartHomeEvent.class)) //transf in json in ob smart event
+                .setValueOnlyDeserializer(new JsonDeserializationSchema<>(SmartHomeEvent.class))
                 .build();
 
         WatermarkStrategy<SmartHomeEvent> watermarkStrategy = WatermarkStrategy
-                .<SmartHomeEvent>forBoundedOutOfOrderness(Duration.ofSeconds(5))
-                .withTimestampAssigner((event, timestamp) -> event.event_time); // flink sa ignore timmpul real si sa foloseasca event_time
+                .<SmartHomeEvent>forBoundedOutOfOrderness(Duration.ofSeconds(slackSeconds))
+                .withTimestampAssigner((event, timestamp) -> event.event_time)
+                .withIdleness(Duration.ofSeconds(1));
 
         DataStream<SmartHomeEvent> events = env.fromSource(source, watermarkStrategy, "Kafka Ingest");
 
         //procesarea ferestrelor
         DataStream<SmartHomeResult> processedStream = events
-                .keyBy(event -> event.house_id)// Grupăm datele pe fiecare casă
+                .keyBy(event -> event.house_id)// Grupam datele pe fiecare casa
                 .window(TumblingEventTimeWindows.of(Time.seconds(10)))
                 .process(new ProcessWindowFunction<SmartHomeEvent, SmartHomeResult, String, TimeWindow>() {
                     @Override
@@ -64,7 +68,8 @@ public class DataStreamJob {
                     }
                 });
 
-        processedStream.addSink(new InfluxDBSink("watermark"));
-        env.execute("Smart City - Watermark Baseline");
+        processedStream.addSink(new InfluxDBSink(sinkName));
+        System.out.printf("🚀 Watermark Fix | slack=%ds | Sink: %s%n", slackSeconds, sinkName);
+        env.execute("Smart Home - Watermark Baseline slack=" + slackSeconds + "s");
     }
 }

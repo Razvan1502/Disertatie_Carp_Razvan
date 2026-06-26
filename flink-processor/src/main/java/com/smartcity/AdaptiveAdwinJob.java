@@ -16,10 +16,15 @@ import java.util.LinkedList;
 
 public class AdaptiveAdwinJob {
 
-    // --- LOGICA ADWIN LITE PENTRU DETECȚIA SCHIMBĂRILOR STATISTICE ---
+    //  LOGICA ADWIN LITE---
     public static class AdwinDetector {
         private final LinkedList<Long> samples = new LinkedList<>();
-        private final int windowSize = 200; // Analizăm ultimele 200 de pachete
+        private final int windowSize = 200;
+        private final long driftThresholdMs;
+
+        public AdwinDetector(long driftThresholdMs) {
+            this.driftThresholdMs = driftThresholdMs;
+        }
 
         public void addSample(long lateness) {
             samples.add(lateness);
@@ -29,7 +34,6 @@ public class AdaptiveAdwinJob {
         public boolean hasDrift() {
             if (samples.size() < windowSize) return false;
 
-            // Împărțim fereastra în două jumătăți (vechi vs nou)
             long sum1 = 0, sum2 = 0;
             int half = windowSize / 2;
             for (int i = 0; i < half; i++) sum1 += samples.get(i);
@@ -38,8 +42,7 @@ public class AdaptiveAdwinJob {
             double avg1 = (double) sum1 / half;
             double avg2 = (double) sum2 / half;
 
-            // Dacă media s-a schimbat cu mai mult de 1 secundă între cele două jumătăți
-            return Math.abs(avg1 - avg2) > 1000;
+            return Math.abs(avg1 - avg2) > driftThresholdMs;
         }
 
         public long getCurrentAvg() {
@@ -53,23 +56,27 @@ public class AdaptiveAdwinJob {
     public static class AdwinWatermarkGenerator implements WatermarkGenerator<SmartHomeEvent> {
         private long maxTimestampSeen = Long.MIN_VALUE;
         private long lastEmittedWatermark = Long.MIN_VALUE;
-        private long m = 5000; // Pornim de la 5s
-        private final AdwinDetector adwin = new AdwinDetector();
+        private long m = 5000;
+        private final AdwinDetector adwin;
+
+        public AdwinWatermarkGenerator(long driftThresholdMs) {
+            this.adwin = new AdwinDetector(driftThresholdMs);
+        }
 
         @Override
         public void onEvent(SmartHomeEvent event, long eventTimestamp, WatermarkOutput output) {
             maxTimestampSeen = Math.max(maxTimestampSeen, eventTimestamp);
 
-            // Monitorizăm latența reală prin ADWIN
+            // Monitorizam latenta reala prin ADWIN adaptiv
             long lateness = event.arrival_time - event.event_time;
             adwin.addSample(lateness);
 
-            // Verificăm dacă ADWIN detectează un drift statistic
+            // Verificam daca detecteaza un drift statistic
             if (adwin.hasDrift()) {
                 long newAvg = adwin.getCurrentAvg();
                 long oldM = m;
 
-                // Adaptăm Slack-ul (m) cu un buffer de siguranță de 500ms
+                // Adaptam Slack-ul (m) cu un buffer de 500ms
                 m = Math.min(12000, newAvg + 500);
 
                 if (m != oldM) {
@@ -91,6 +98,10 @@ public class AdaptiveAdwinJob {
     }
 
     public static void main(String[] args) throws Exception {
+        // arg[0] = driftThresholdMs (default 1000). Ex: 500, 1000, 2000
+        long driftThresholdMs = (args.length > 0) ? Long.parseLong(args[0]) : 1000;
+        String sinkName = "adaptive_adwin_dt" + driftThresholdMs;
+
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
 
@@ -102,8 +113,9 @@ public class AdaptiveAdwinJob {
                 .setValueOnlyDeserializer(new JsonDeserializationSchema<>(SmartHomeEvent.class))
                 .build();
 
+        final long driftThresholdFinal = driftThresholdMs;
         WatermarkStrategy<SmartHomeEvent> strategy = WatermarkStrategy
-                .forGenerator((ctx) -> new AdwinWatermarkGenerator())
+                .forGenerator((ctx) -> new AdwinWatermarkGenerator(driftThresholdFinal))
                 .withTimestampAssigner((event, timestamp) -> event.event_time)
                 .withIdleness(Duration.ofSeconds(1));
 
@@ -121,10 +133,8 @@ public class AdaptiveAdwinJob {
                     }
                 });
 
-        // Folosim tag-ul "adaptive_adwin" pentru a-l vedea separat în Grafana
-        results.addSink(new InfluxDBSink("adaptive_adwin"));
-
-        System.out.println("🚀 Job ADWIN pornind...");
+        results.addSink(new InfluxDBSink(sinkName));
+        System.out.printf("🚀 Adaptive ADWIN | driftThreshold=%dms | Sink: %s%n", driftThresholdMs, sinkName);
         env.execute("Adaptive ADWIN Watermarking");
     }
 }

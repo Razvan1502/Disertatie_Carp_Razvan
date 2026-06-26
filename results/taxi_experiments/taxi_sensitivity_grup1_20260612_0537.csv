@@ -1,0 +1,6 @@
+Configurație,True Latency (s),Window Delay (min),Completeness (%)
+Slack = 500s,1.169,0.59,78.9
+Slack = 900s,2.004,0.18,99.2
+Slack = 1500s (default),3.961,0.17,100.0
+Slack = 2400s,9.036,0.17,100.0
+Slack = 3600s,17.837,0.17,100.0

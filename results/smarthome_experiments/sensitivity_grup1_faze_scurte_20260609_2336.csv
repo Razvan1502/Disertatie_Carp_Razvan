@@ -1,0 +1,6 @@
+Configurație,True Latency (s),Decisional Lat.(s),Completeness (%),Overhead
+Slack = 1s,1.897,2.036,90.3,1.0
+Slack = 3s,3.281,4.061,93.9,1.0
+Slack = 5s,4.603,6.017,97.0,1.0
+Slack = 8s,6.919,9.012,99.7,1.0
+Slack = 12s,10.854,13.024,99.9,1.0

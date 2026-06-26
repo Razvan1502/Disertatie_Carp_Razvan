@@ -1,6 +1,7 @@
 # ─── Date mari (nu se commitează) ───────────────────────────────────────────
 data/HomeC.csv
 data/*.csv
+data/trip_data/
 
 # ─── Java / Maven ────────────────────────────────────────────────────────────
 flink-processor/target/

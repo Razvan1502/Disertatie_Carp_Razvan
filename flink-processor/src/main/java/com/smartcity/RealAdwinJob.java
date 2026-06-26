@@ -20,19 +20,23 @@ public class RealAdwinJob {
         private long maxTimestampSeen = Long.MIN_VALUE;
         private long lastEmittedWatermark = Long.MIN_VALUE;
 
-        // Parametrii Algorithm 1 (Awad et al. 2019)
+        // Parametrii Algorithm 1
         private long lateElements = 0;
         private long totalElements = 0;
-        private double delta = 1.0;        // δ=1 implicit (maxim sensibil, conform paper)
-        private final double L = 0.1;      // prag toleranță late arrivals
-        private final double deltaStep = 0.1; // ∆δ
+        private double delta = 1.0;
+        private final double L;
+        private final double deltaStep;
 
-        // Warmup — inițializăm m din primele w tuple (Algorithm 1, liniile 7-9)
-        // Folosim media în loc de max pentru a evita supra-estimarea din outlieri
+        public OfficialAdwinWatermarkGenerator(double L, double deltaStep) {
+            this.L = L;
+            this.deltaStep = deltaStep;
+        }
+
+        // Warmup
         private final int WARMUP_COUNT = 500;
         private int warmupDone = 0;
         private long warmupSum = 0;
-        private long currentSlack = 2000; // valoare de start până la finalizarea warmup-ului
+        private long currentSlack = 2000; // valoare de start pana la finalizarea warmup-ului
 
         private final ADWIN adwin = new ADWIN(delta);
 
@@ -42,8 +46,7 @@ public class RealAdwinJob {
 
             long lateness = Math.max(0, event.arrival_time - event.event_time);
 
-            // Faza warmup: m = medie(tp(e) - te(e)) + buffer (Algorithm 1, liniile 7-9)
-            // Folosim media în loc de max: max-ul din chaos mode (12s) ar bloca orice adaptare
+            // Faza warmup: m = medie(tp(e) - te(e)) + buffer
             if (warmupDone < WARMUP_COUNT) {
                 warmupSum += lateness;
                 warmupDone++;
@@ -58,48 +61,49 @@ public class RealAdwinJob {
 
             totalElements++;
 
-            // FIX 2: Normalizare input la [0,1] conform paper (linia 12): (tp-te)/m
+            // Normalizare input la [0,1] : (tp-te)/m
             double normalizedLateness = (currentSlack > 0) ? (double) lateness / currentSlack : 0.0;
-            // Cap la 2.0 pentru outlieri extremi (lateness > 2×m)
-            normalizedLateness = Math.min(normalizedLateness, 2.0);
 
-            if (lastEmittedWatermark != Long.MIN_VALUE && eventTimestamp < lastEmittedWatermark) {
-                lateElements++;
-            }
+            normalizedLateness = Math.min(normalizedLateness, 2.0);
 
             boolean isDriftDetected = adwin.setInput(normalizedLateness);
 
             if (isDriftDetected) {
                 double currentLateRate = (totalElements > 0) ? (double) lateElements / totalElements : 0.0;
 
+                // creștem sensibilitatea.
                 if (lateElements == 0) {
-                    // FIX 3: Creștem sensibilitatea când nu avem late arrivals (paper linia 14)
                     delta = Math.min(1.0, delta + deltaStep);
                     adwin.setDelta(delta);
-                } else if (currentLateRate < L) {
-                    // Actualizăm slack-ul: estimarea ADWIN e normalizată → denormalizăm
-                    long newSlack = (long)(adwin.getEstimation() * currentSlack) + 500;
-                    currentSlack = Math.min(12000, Math.max(1000, newSlack));
+                }
 
-                    System.out.printf("✅ ADWIN DRIFT OK: lateRate=%.2f < L=%.2f → Slack ajustat la %dms, δ=%.2f\n",
-                            currentLateRate, L, currentSlack, delta);
 
-                    // FIX 4: Resetăm ambele contoare (Algorithm 1, liniile 18-19)
+                if (currentLateRate < L) {
                     lateElements = 0;
                     totalElements = 0;
+                    System.out.printf("✅ ADWIN DRIFT: lateRate=%.2f < L=%.2f → m neschimbat (%dms), reset contoare, δ=%.2f\n",
+                            currentLateRate, L, currentSlack, delta);
                 } else {
-                    // Scădem sensibilitatea când avem prea multe late arrivals (paper linia 22)
+                    //prea multi tardivi → updateSkewness() + scadem sensibilitatea.
+
+                    long newSlack = (long)(adwin.getEstimation() * currentSlack) + 1000;
+                    currentSlack = Math.min(12000, Math.max(1000, newSlack));
                     delta = Math.max(0.01, delta - deltaStep);
                     adwin.setDelta(delta);
-                    System.out.printf("⚠️ ADWIN: lateRate=%.2f >= L=%.2f → Scad sensibilitatea δ=%.2f\n",
-                            currentLateRate, L, delta);
+                    System.out.printf("⚠️ ADWIN DRIFT: lateRate=%.2f >= L=%.2f → updateSkewness m=%dms, δ↓=%.2f\n",
+                            currentLateRate, L, currentSlack, delta);
+                }
+            } else {
+
+                if (lastEmittedWatermark != Long.MIN_VALUE && eventTimestamp < lastEmittedWatermark) {
+                    lateElements++;
                 }
             }
         }
 
         @Override
         public void onPeriodicEmit(WatermarkOutput output) {
-            // Nu emitem watermark în faza de warmup
+            // Nu emitem watermark in faza de warmup
             if (warmupDone < WARMUP_COUNT || maxTimestampSeen == Long.MIN_VALUE) return;
 
             long potentialWM = maxTimestampSeen - currentSlack;
@@ -112,10 +116,15 @@ public class RealAdwinJob {
 
 
     public static void main(String[] args) throws Exception {
+        // arg[0] = L (late arrival threshold, default 0.1). Ex: 0.01, 0.1, 1.0
+        // arg[1] = deltaStep (∆δ, default 0.1). Ex: 0.1, 1.0
+        double L         = (args.length > 0) ? Double.parseDouble(args[0]) : 0.1;
+        double deltaStep = (args.length > 1) ? Double.parseDouble(args[1]) : 0.1;
+        String sinkName  = String.format("adaptive_real_adwin_L%d_dd%d",
+                (int)(L * 100), (int)(deltaStep * 100));
 
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
-
 
         String uniqueGroupId = "real-adwin-group-" + System.currentTimeMillis();
         KafkaSource<SmartHomeEvent> source = KafkaSource.<SmartHomeEvent>builder()
@@ -126,15 +135,15 @@ public class RealAdwinJob {
                 .setValueOnlyDeserializer(new JsonDeserializationSchema<>(SmartHomeEvent.class))
                 .build();
 
-        //  Aplicarea strategiei ADWIN Matematic (Statistical Adaptive)
+        final double Lf = L, dsf = deltaStep;
         WatermarkStrategy<SmartHomeEvent> adwinStrategy = WatermarkStrategy
-                .forGenerator((ctx) -> new OfficialAdwinWatermarkGenerator())
+                .forGenerator((ctx) -> new OfficialAdwinWatermarkGenerator(Lf, dsf))
                 .withTimestampAssigner((event, timestamp) -> event.event_time)
                 .withIdleness(Duration.ofSeconds(1));
 
         DataStream<SmartHomeEvent> events = env.fromSource(source, adwinStrategy, "Kafka Ingest");
 
-        // Procesarea ferestrelor (10 secunde)
+
         DataStream<SmartHomeResult> results = events
                 .keyBy(event -> event.house_id)
                 .window(TumblingEventTimeWindows.of(Time.seconds(10)))
@@ -171,12 +180,8 @@ public class RealAdwinJob {
                 });
 
 
-        results.addSink(new InfluxDBSink("adaptive_real_adwin"));
-
-
-       // results.map(r -> "🎯 ADWIN REAL EMIS -> Casa: " + r.houseId + " | Pachete: " + r.count).print();
-
-        System.out.println("🚀 Job ADWIN Matematic pornit! (Nivel de încredere statistical: 95%)");
-        env.execute("Smart City - Official ADWIN Analysis");
+        results.addSink(new InfluxDBSink(sinkName));
+        System.out.printf("🚀 Official ADWIN | L=%.2f | ∆δ=%.2f | Sink: %s%n", L, deltaStep, sinkName);
+        env.execute("Smart Home - Official ADWIN L=" + L + " dd=" + deltaStep);
     }
 }

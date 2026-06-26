@@ -3,8 +3,7 @@ package com.smartcity;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-// Această adnotare ignoră orice alte câmpuri care ar putea veni din JSON
-// și pe care nu le-am definit (ajută mult la debugging)
+
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class SmartHomeEvent {
 
@@ -26,7 +25,7 @@ public class SmartHomeEvent {
     @JsonProperty("arrival_time")
     public Long arrival_time;
 
-    // Flink are nevoie obligatoriu de un constructor gol
+
     public SmartHomeEvent() {}
 
     @Override
