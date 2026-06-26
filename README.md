@@ -1,50 +1,74 @@
-### Pasul 1: Reset complet al infrastructurii
-Rulează aceste comenzi în folderul unde ai `docker-compose.yml`:
+# An Empirical Comparison of Out-of-Order Event Management Strategies in Apache Flink
 
-```powershell
-# 1. Oprim containerele și ȘTERGEM volumele (datele vechi care pot fi corupte)
-docker-compose down -v
+Master's thesis — UAIC Faculty of Informatics, 2026.  
+**Author:** Răzvan Nicolae Carp  
+**Coordinator:** Conf. Dr. Emanuel Onica
 
-# 2. Pornim din nou
+## Overview
+
+This project implements and evaluates five out-of-order (OOO) event handling strategies in Apache Flink:
+
+| Strategy | Description |
+|---|---|
+| **Naive** | No OOO handling — late events are discarded |
+| **Fixed Watermark** | Static slack (configurable) |
+| **Heuristic Adaptive Watermark** | ADWIN-based drift detection adjusts slack dynamically |
+| **Official ADWIN** | Implements Awad et al. (2019) algorithm |
+| **Speculative** | Emits early results via CountTrigger, then corrects on watermark |
+
+Evaluated on two datasets: **SmartHome** (synthetic IoT, 100 houses, 3 network jitter regimes) and **NYC Taxi DEBS 2015** (real OOO from trip duration).
+
+## Repository structure
+
+```
+generator/          — Go event generator (Kafka producer, 3 network regimes)
+flink-processor/    — Apache Flink jobs in Java (one per strategy)
+scripts/            — Python analysis scripts (InfluxDB queries, plots, CSVs)
+data/               — Input CSV traces (SmartHome HomeC.csv, NYC Taxi trip_data/)
+results/            — Experiment outputs (PNG plots, CSV exports)
+docker-compose.yml  — Infrastructure (Kafka, ZooKeeper, InfluxDB, Grafana)
+```
+
+## Quick start
+
+**Prerequisites:** Docker, Java 11+, Maven, Go 1.21+, Python 3.9+
+
+```bash
+# 1. Start infrastructure
 docker-compose up -d
+
+# 2. Build Flink jobs
+cd flink-processor && mvn package
+
+# 3. Run generator (interactive — choose dataset and network scenario)
+cd generator && go run main.go
+
+# 4. Submit a Flink job (example: fixed watermark strategy)
+flink run flink-processor/target/flink-processor-0.1.jar com.smartcity.DataStreamJob
+
+# 5. Analyze results
+python scripts/final_comparison.py       # SmartHome comparison plots
+python scripts/taxi_comparison.py        # Taxi comparison plots
+python scripts/parameter_sensitivity.py  # SmartHome parameter sensitivity
+python scripts/taxi_sensitivity.py       # Taxi parameter sensitivity
 ```
 
-### Pasul 2: Verificare (Așteaptă 15 secunde)
-Kafka are nevoie de câteva secunde să se inițializeze. Așteaptă puțin și apoi verifică:
+## Flink jobs
 
-```powershell
-docker ps
-```
-**Dacă la STATUS scrie `Up 15 seconds` (sau mai mult), e perfect.**
+| Class | Strategy |
+|---|---|
+| `DataStreamJob` | Fixed Watermark (SmartHome) |
+| `NaiveJob` | Naive (SmartHome) |
+| `AdaptiveAdwinJob` | Heuristic Adaptive Watermark (SmartHome) |
+| `RealAdwinJob` | Official ADWIN — Awad et al. 2019 (SmartHome) |
+| `SpeculativeJob` | Speculative (SmartHome) |
+| `TaxiDataStreamJob` | Fixed Watermark (Taxi) |
+| `TaxiNaiveJob` | Naive (Taxi) |
+| `TaxiAdaptiveAdwinJob` | Heuristic Adaptive Watermark (Taxi) |
+| `TaxiRealAdwinJob` | Official ADWIN (Taxi) |
+| `TaxiSpeculativeJob` | Speculative (Taxi) |
+| `TaxiInOrderJob` | In-order baseline (Taxi) |
 
-### Pasul 3: Dacă tot moare, verifică log-urile
-Dacă tot nu rămâne pornit, trebuie să vedem exact de ce „moare”. Rulează:
-```powershell
-docker logs kafka
-```
-*(Dacă vezi erori de tipul "Port 9092 already in use", înseamnă că mai ai un alt Kafka pornit pe calculator în afara Docker-ului).*
+## License
 
----
-
-### Pasul 4: Testarea Generatorului Go
-Odată ce `docker ps` îți arată containerele pornite stabil (nu mai mor după o secundă), poți rula generatorul tău:
-
-1. **Creează topicul:**
-```powershell
-docker exec -it kafka kafka-topics --create --topic iot-sensor-data --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
-```
-
-2. **Pornește generatorul (în folderul `generator`):**
-```powershell
-go run main.go
-```
-
-3. **Verifică datele (într-un alt terminal):**
-```powershell
-docker exec -it kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic iot-sensor-data --from-beginning
-```
-
-**De ce am folosit `down -v`?**
-Containerele tale aveau o vechime de 7 zile. Kafka stochează ID-ul de cluster în fișiere temporare. Dacă ai restartat Docker sau Windows între timp, acele ID-uri pot intra în conflict, iar Kafka refuză să pornească până nu ștergi datele vechi (ceea ce face `-v`).
-
-**Te rog să-mi spui dacă după `docker-compose down -v` și `up -d`, containerele rămân pornite!**
+Educational use.
